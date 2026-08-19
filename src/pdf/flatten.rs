@@ -42,11 +42,44 @@ pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String>
     Ok(())
 }
 
+/// Get the decompressed content of a stream
+fn get_stream_content(doc: &lopdf::Document, stream: &lopdf::Stream) -> Result<Vec<u8>, String> {
+    // Try to decompress if filtered
+    match stream.decompressed_content() {
+        Ok(content) => Ok(content),
+        Err(_) => {
+            // If decompression fails, use raw content
+            Ok(stream.content.clone())
+        }
+    }
+}
+
+/// Get annotation rectangle [x1, y1, x2, y2]
+fn get_annot_rect(annot_dict: &lopdf::Dictionary) -> Option<[f64; 4]> {
+    if let Ok(lopdf::Object::Array(rect)) = annot_dict.get(b"Rect") {
+        if rect.len() == 4 {
+            let coords: Vec<f64> = rect.iter()
+                .filter_map(|obj| {
+                    match obj {
+                        lopdf::Object::Integer(i) => Some(*i as f64),
+                        lopdf::Object::Real(f) => Some(*f as f64),
+                        _ => None,
+                    }
+                })
+                .collect();
+            if coords.len() == 4 {
+                return Some([coords[0], coords[1], coords[2], coords[3]]);
+            }
+        }
+    }
+    None
+}
+
 fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(), String> {
     use lopdf::{Object, Stream};
     
-    // First, collect all annotation appearance streams (immutable borrow)
-    let appearance_streams = {
+    // First, collect all annotation data (immutable borrow)
+    let annotation_data = {
         let page = doc.get_object(page_id)
             .map_err(|e| format!("无法获取页面对象: {}", e))?;
         
@@ -69,7 +102,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
             return Ok(());
         }
         
-        let mut streams = Vec::new();
+        let mut data = Vec::new();
         
         for annot_ref in &annot_refs {
             let annot_id = match annot_ref {
@@ -87,32 +120,41 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
                 _ => continue,
             };
             
+            // Get annotation rectangle for positioning
+            let rect = get_annot_rect(annot_dict);
+            
             if let Ok(ap) = annot_dict.get(b"AP") {
                 if let Object::Dictionary(ap_dict) = ap {
                     if let Ok(normal) = ap_dict.get(b"N") {
-                        match normal {
+                        let stream_content = match normal {
                             Object::Stream(stream) => {
-                                streams.push(stream.content.clone());
+                                get_stream_content(doc, stream)?
                             }
                             Object::Reference(ref_id) => {
                                 if let Ok(obj) = doc.get_object(*ref_id) {
                                     if let Object::Stream(stream) = obj {
-                                        streams.push(stream.content.clone());
+                                        get_stream_content(doc, stream)?
+                                    } else {
+                                        continue;
                                     }
+                                } else {
+                                    continue;
                                 }
                             }
-                            _ => {}
-                        }
+                            _ => continue,
+                        };
+                        
+                        data.push((rect, stream_content));
                     }
                 }
             }
         }
         
-        streams
+        data
     };
     
     // If we have appearance streams, merge them into page content
-    if !appearance_streams.is_empty() {
+    if !annotation_data.is_empty() {
         // Get current content or create empty
         let current_content = {
             let page = doc.get_object(page_id)
@@ -122,7 +164,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
                 match dict.get(b"Contents") {
                     Ok(Object::Reference(id)) => {
                         if let Ok(Object::Stream(stream)) = doc.get_object(*id) {
-                            stream.content.clone()
+                            get_stream_content(doc, stream)?
                         } else {
                             Vec::new()
                         }
@@ -132,7 +174,8 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
                         for item in arr {
                             if let Object::Reference(id) = item {
                                 if let Ok(Object::Stream(stream)) = doc.get_object(*id) {
-                                    combined.extend_from_slice(&stream.content);
+                                    let content = get_stream_content(doc, stream)?;
+                                    combined.extend_from_slice(&content);
                                     combined.extend_from_slice(b"\n");
                                 }
                             }
@@ -146,10 +189,20 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
             }
         };
         
-        // Build new content with appearance streams appended
+        // Build new content with appearance streams
         let mut new_content = current_content;
-        for stream_content in &appearance_streams {
+        
+        for (rect, stream_content) in &annotation_data {
             new_content.extend_from_slice(b"\nq\n");
+            
+            // If we have a rectangle, apply translation to position the annotation
+            if let Some([x1, y1, _x2, _y2]) = rect {
+                // Translate to annotation position
+                // Use 6 decimal places for precision
+                let transform = format!("1 0 0 1 {:.6} {:.6} cm\n", x1, y1);
+                new_content.extend_from_slice(transform.as_bytes());
+            }
+            
             new_content.extend_from_slice(stream_content);
             new_content.extend_from_slice(b"\nQ\n");
         }

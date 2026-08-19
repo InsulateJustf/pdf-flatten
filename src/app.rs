@@ -20,7 +20,97 @@ pub struct PdfFlattenApp {
 }
 
 impl PdfFlattenApp {
-    pub fn new() -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Configure fonts with Chinese support
+        let mut fonts = egui::FontDefinitions::default();
+        
+        // Try to load system Chinese fonts
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, try to load Microsoft YaHei or SimSun
+            let font_paths = [
+                "C:/Windows/Fonts/msyh.ttc",      // Microsoft YaHei
+                "C:/Windows/Fonts/simsun.ttc",     // SimSun
+                "C:/Windows/Fonts/simhei.ttf",     // SimHei
+            ];
+            
+            for path in &font_paths {
+                if let Ok(font_data) = std::fs::read(path) {
+                    fonts.font_data.insert(
+                        "chinese".to_owned(),
+                        egui::FontData::from_owned(font_data),
+                    );
+                    fonts.families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .insert(0, "chinese".to_owned());
+                    fonts.families
+                        .entry(egui::FontFamily::Monospace)
+                        .or_default()
+                        .push("chinese".to_owned());
+                    break;
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS, try to load PingFang or Hiragino Sans
+            let font_paths = [
+                "/System/Library/Fonts/PingFang.ttc",
+                "/System/Library/Fonts/STHeiti Light.ttc",
+                "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            ];
+            
+            for path in &font_paths {
+                if let Ok(font_data) = std::fs::read(path) {
+                    fonts.font_data.insert(
+                        "chinese".to_owned(),
+                        egui::FontData::from_owned(font_data),
+                    );
+                    fonts.families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .insert(0, "chinese".to_owned());
+                    fonts.families
+                        .entry(egui::FontFamily::Monospace)
+                        .or_default()
+                        .push("chinese".to_owned());
+                    break;
+                }
+            }
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            // On Linux, try common CJK font locations
+            let font_paths = [
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            ];
+            
+            for path in &font_paths {
+                if let Ok(font_data) = std::fs::read(path) {
+                    fonts.font_data.insert(
+                        "chinese".to_owned(),
+                        egui::FontData::from_owned(font_data),
+                    );
+                    fonts.families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .insert(0, "chinese".to_owned());
+                    fonts.families
+                        .entry(egui::FontFamily::Monospace)
+                        .or_default()
+                        .push("chinese".to_owned());
+                    break;
+                }
+            }
+        }
+        
+        cc.egui_ctx.set_fonts(fonts);
+        
         Self {
             files: Vec::new(),
             keep_original: true,
@@ -102,7 +192,7 @@ impl eframe::App for PdfFlattenApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Title
-            ui.heading("📄 PDF 注释扁平化工具");
+            ui.heading("PDF 注释扁平化工具");
             ui.add_space(8.0);
 
             // Drop zone
@@ -129,7 +219,7 @@ impl eframe::App for PdfFlattenApp {
                 ui.put(
                     rect,
                     egui::Label::new(
-                        egui::RichText::new("📁 拖拽 PDF 文件到此处，或点击选择文件")
+                        egui::RichText::new("拖拽 PDF 文件到此处，或点击选择文件")
                             .size(16.0)
                             .color(egui::Color32::from_rgb(100, 100, 120)),
                     ),

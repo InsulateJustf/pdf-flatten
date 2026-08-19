@@ -17,6 +17,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "PDF Flatten",
         options,
-        Box::new(|_cc| Ok(Box::new(PdfFlattenApp::new()))),
+        Box::new(|cc| Ok(Box::new(PdfFlattenApp::new(cc)))),
     )
 }

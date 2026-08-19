@@ -46,7 +46,7 @@ impl FileList {
                         ui.with_layout(
                             egui::Layout::right_to_left(egui::Align::Center),
                             |ui| {
-                                if ui.small_button("✕").clicked() {
+                                if ui.small_button("X").clicked() {
                                     remove_idx = Some(i);
                                 }
                                 ui.add_space(20.0);
