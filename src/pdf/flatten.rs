@@ -1,24 +1,16 @@
 use std::path::Path;
 
-/// Flatten annotations in a PDF file, merging them into the page content.
-/// 
-/// If keep_original is true, the output will be saved with "_flattened" suffix.
-/// Otherwise, the original file will be overwritten.
 pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String> {
-    // Load the PDF document
     let mut doc = lopdf::Document::load(input_path)
         .map_err(|e| format!("无法加载 PDF: {}", e))?;
     
-    // Get all page IDs
     let pages: Vec<_> = doc.get_pages().into_iter().collect();
     
-    // Process each page
     for (page_num, page_id) in pages {
         flatten_page(&mut doc, page_id)
             .map_err(|e| format!("处理第 {} 页时出错: {}", page_num, e))?;
     }
     
-    // Determine output path
     let output_path = if keep_original {
         let stem = input_path
             .file_stem()
@@ -28,33 +20,25 @@ pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String>
             .extension()
             .map(|e| e.to_string_lossy().to_string())
             .unwrap_or_else(|| "pdf".to_string());
-        
         let parent = input_path.parent().unwrap_or(Path::new("."));
         parent.join(format!("{}_flattened.{}", stem, extension))
     } else {
         input_path.to_path_buf()
     };
     
-    // Save the document
     doc.save(&output_path)
         .map_err(|e| format!("无法保存 PDF: {}", e))?;
     
     Ok(())
 }
 
-/// Get the decompressed content of a stream, preserving original if decompression fails
 fn get_stream_content(_doc: &lopdf::Document, stream: &lopdf::Stream) -> Result<Vec<u8>, String> {
-    // Try to decompress if filtered
     match stream.decompressed_content() {
         Ok(content) => Ok(content),
-        Err(_) => {
-            // If decompression fails, use raw content
-            Ok(stream.content.clone())
-        }
+        Err(_) => Ok(stream.content.clone()),
     }
 }
 
-/// Get content from a content object (could be a stream, array of streams, or reference to either)
 fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result<Vec<u8>, String> {
     use lopdf::Object;
     
@@ -74,7 +58,6 @@ fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result
                                 combined.extend_from_slice(b"\n");
                             }
                             Ok(Object::Array(inner_arr)) => {
-                                // Handle nested arrays
                                 let inner_content = get_content_from_object(doc, &Object::Array(inner_arr.clone()))?;
                                 combined.extend_from_slice(&inner_content);
                             }
@@ -104,7 +87,7 @@ fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result
 fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(), String> {
     use lopdf::{Object, Stream};
     
-    // First, collect all annotation data (immutable borrow)
+    // Collect annotation appearance streams
     let annotation_data = {
         let page = doc.get_object(page_id)
             .map_err(|e| format!("无法获取页面对象: {}", e))?;
@@ -146,7 +129,6 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
                 _ => continue,
             };
             
-            // Only process annotations that have appearance streams
             if let Ok(ap) = annot_dict.get(b"AP") {
                 if let Object::Dictionary(ap_dict) = ap {
                     if let Ok(normal) = ap_dict.get(b"N") {
@@ -177,18 +159,14 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         data
     };
     
-    // If we have appearance streams, merge them into page content
     if !annotation_data.is_empty() {
-        // Get current content using the helper function
         let current_content = {
             let page = doc.get_object(page_id)
                 .map_err(|e| format!("无法获取页面对象: {}", e))?;
             
             if let Object::Dictionary(dict) = page {
                 match dict.get(b"Contents") {
-                    Ok(contents) => {
-                        get_content_from_object(doc, contents)?
-                    }
+                    Ok(contents) => get_content_from_object(doc, contents)?,
                     Err(_) => Vec::new(),
                 }
             } else {
@@ -196,22 +174,28 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
             }
         };
         
-        // Build new content with appearance streams
-        // Note: Form XObject content is already in page coordinates
-        // The Matrix/BBox are for PDF viewer rendering, not for flattening
-        let mut new_content = current_content;
+        // Build new content:
+        // 1. Save initial state
+        // 2. Original page content (may modify CTM, e.g. CAD scaling)
+        // 3. Restore to initial state (undo any CTM changes)
+        // 4. Draw annotations with clean (identity) CTM
+        let mut new_content = Vec::new();
         
+        // Wrap original content in q/Q to isolate its graphics state
+        new_content.extend_from_slice(b"q\n");
+        new_content.extend_from_slice(&current_content);
+        new_content.extend_from_slice(b"\nQ\n");
+        
+        // Now draw annotations with identity CTM
         for stream_content in &annotation_data {
-            new_content.extend_from_slice(b"\nq\n");
+            new_content.extend_from_slice(b"q\n");
             new_content.extend_from_slice(stream_content);
             new_content.extend_from_slice(b"\nQ\n");
         }
         
-        // Create new stream with the merged content
         let new_stream = Stream::new(lopdf::Dictionary::new(), new_content);
         let new_id = doc.add_object(new_stream);
         
-        // Update page to reference the new content stream
         let page = doc.get_object_mut(page_id)
             .map_err(|e| format!("无法修改页面: {}", e))?;
         
@@ -220,7 +204,6 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         }
     }
     
-    // Always remove annotations from page (this is the flattening)
     let page = doc.get_object_mut(page_id)
         .map_err(|e| format!("无法修改页面: {}", e))?;
     
