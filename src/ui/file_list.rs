@@ -10,7 +10,7 @@ impl FileList {
                 if files.is_empty() {
                     ui.centered_and_justified(|ui| {
                         ui.label(
-                            egui::RichText::new("暂无文件，请添加 PDF 文件")
+                            egui::RichText::new("No files added. Please add PDF files.")
                                 .italics()
                                 .color(egui::Color32::GRAY),
                         );
@@ -18,25 +18,23 @@ impl FileList {
                     return;
                 }
 
-                // Header
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("#").strong());
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("文件名").strong());
+                    ui.label(egui::RichText::new("Filename").strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("操作").strong());
+                        ui.label(egui::RichText::new("Action").strong());
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("状态").strong());
+                        ui.label(egui::RichText::new("Status").strong());
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("注释").strong());
+                        ui.label(egui::RichText::new("Annotations").strong());
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("页数").strong());
+                        ui.label(egui::RichText::new("Pages").strong());
                     });
                 });
 
                 ui.separator();
 
-                // File rows
                 let mut remove_idx = None;
                 for (i, file) in files.iter().enumerate() {
                     ui.horizontal(|ui| {

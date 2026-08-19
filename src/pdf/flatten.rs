@@ -2,13 +2,13 @@ use std::path::Path;
 
 pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String> {
     let mut doc = lopdf::Document::load(input_path)
-        .map_err(|e| format!("无法加载 PDF: {}", e))?;
+        .map_err(|e| format!("Failed to load PDF: {}", e))?;
     
     let pages: Vec<_> = doc.get_pages().into_iter().collect();
     
     for (page_num, page_id) in pages {
         flatten_page(&mut doc, page_id)
-            .map_err(|e| format!("处理第 {} 页时出错: {}", page_num, e))?;
+            .map_err(|e| format!("Error processing page {}: {}", page_num, e))?;
     }
     
     let output_path = if keep_original {
@@ -27,7 +27,7 @@ pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String>
     };
     
     doc.save(&output_path)
-        .map_err(|e| format!("无法保存 PDF: {}", e))?;
+        .map_err(|e| format!("Failed to save PDF: {}", e))?;
     
     Ok(())
 }
@@ -77,7 +77,7 @@ fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result
         Object::Reference(id) => {
             match doc.get_object(*id) {
                 Ok(inner_obj) => get_content_from_object(doc, inner_obj),
-                Err(e) => Err(format!("无法解引用对象: {:?}", e)),
+                Err(e) => Err(format!("Failed to dereference object: {:?}", e)),
             }
         }
         _ => Ok(Vec::new()),
@@ -87,10 +87,9 @@ fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result
 fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(), String> {
     use lopdf::{Object, Stream};
     
-    // Collect annotation appearance streams
     let annotation_data = {
         let page = doc.get_object(page_id)
-            .map_err(|e| format!("无法获取页面对象: {}", e))?;
+            .map_err(|e| format!("Failed to get page object: {}", e))?;
         
         let page_dict = match page {
             Object::Dictionary(dict) => dict,
@@ -162,7 +161,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
     if !annotation_data.is_empty() {
         let current_content = {
             let page = doc.get_object(page_id)
-                .map_err(|e| format!("无法获取页面对象: {}", e))?;
+                .map_err(|e| format!("Failed to get page object: {}", e))?;
             
             if let Object::Dictionary(dict) = page {
                 match dict.get(b"Contents") {
@@ -174,19 +173,15 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
             }
         };
         
-        // Build new content:
-        // 1. Save initial state
-        // 2. Original page content (may modify CTM, e.g. CAD scaling)
-        // 3. Restore to initial state (undo any CTM changes)
-        // 4. Draw annotations with clean (identity) CTM
         let mut new_content = Vec::new();
         
-        // Wrap original content in q/Q to isolate its graphics state
+        // Wrap original content in q/Q to save/restore graphics state
+        // This prevents CAD coordinate transforms from affecting annotations
         new_content.extend_from_slice(b"q\n");
         new_content.extend_from_slice(&current_content);
         new_content.extend_from_slice(b"\nQ\n");
         
-        // Now draw annotations with identity CTM
+        // Draw annotations with clean (identity) CTM
         for stream_content in &annotation_data {
             new_content.extend_from_slice(b"q\n");
             new_content.extend_from_slice(stream_content);
@@ -197,7 +192,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         let new_id = doc.add_object(new_stream);
         
         let page = doc.get_object_mut(page_id)
-            .map_err(|e| format!("无法修改页面: {}", e))?;
+            .map_err(|e| format!("Failed to modify page: {}", e))?;
         
         if let Object::Dictionary(dict) = page {
             dict.set(b"Contents", Object::Reference(new_id));
@@ -205,7 +200,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
     }
     
     let page = doc.get_object_mut(page_id)
-        .map_err(|e| format!("无法修改页面: {}", e))?;
+        .map_err(|e| format!("Failed to modify page: {}", e))?;
     
     if let Object::Dictionary(dict) = page {
         dict.remove(b"Annots");

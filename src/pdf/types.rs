@@ -11,11 +11,10 @@ pub struct PdfInfo {
 
 pub fn get_pdf_info(path: &PathBuf) -> Result<PdfInfo, String> {
     let doc = lopdf::Document::load(path)
-        .map_err(|e| format!("无法加载 PDF: {}", e))?;
+        .map_err(|e| format!("Failed to load PDF: {}", e))?;
     
     let page_count = doc.get_pages().len();
     
-    // Count annotations across all pages
     let mut annotation_count = 0;
     for (_, page_id) in doc.get_pages() {
         if let Ok(page) = doc.get_object(page_id) {
@@ -39,6 +38,6 @@ pub fn get_pdf_info(path: &PathBuf) -> Result<PdfInfo, String> {
         name,
         pages: page_count,
         annotations: annotation_count,
-        status: "⏳".to_string(),
+        status: "Pending".to_string(),
     })
 }

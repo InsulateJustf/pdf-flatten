@@ -17,13 +17,12 @@ impl ProgressView {
 
         ui.add_space(4.0);
 
-        // Progress bar
         let progress_bar = egui::ProgressBar::new(progress)
             .show_percentage()
             .text(if *state == ProcessingState::Done {
-                "处理完成".to_string()
+                "Processing complete".to_string()
             } else {
-                format!("处理中: {}/{}", current, total)
+                format!("Processing: {}/{}", current, total)
             });
 
         ui.add(progress_bar);

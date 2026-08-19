@@ -10,7 +10,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([600.0, 400.0])
-            .with_title("PDF 注释扁平化工具"),
+            .with_title("PDF Annotation Flattener"),
         ..Default::default()
     };
     
