@@ -1,14 +1,15 @@
 use std::path::Path;
+use crate::i18n;
 
 pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String> {
     let mut doc = lopdf::Document::load(input_path)
-        .map_err(|e| format!("Failed to load PDF: {}", e))?;
+        .map_err(|e| i18n::err_load_pdf(&e.to_string()))?;
     
     let pages: Vec<_> = doc.get_pages().into_iter().collect();
     
     for (page_num, page_id) in pages {
         flatten_page(&mut doc, page_id)
-            .map_err(|e| format!("Error processing page {}: {}", page_num, e))?;
+            .map_err(|e| i18n::err_process_page(page_num, &e))?;
     }
     
     let output_path = if keep_original {
@@ -27,7 +28,7 @@ pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String>
     };
     
     doc.save(&output_path)
-        .map_err(|e| format!("Failed to save PDF: {}", e))?;
+        .map_err(|e| i18n::err_save_pdf(&e.to_string()))?;
     
     Ok(())
 }
@@ -77,7 +78,7 @@ fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result
         Object::Reference(id) => {
             match doc.get_object(*id) {
                 Ok(inner_obj) => get_content_from_object(doc, inner_obj),
-                Err(e) => Err(format!("Failed to dereference object: {:?}", e)),
+                Err(e) => Err(i18n::err_deref_object(&format!("{:?}", e))),
             }
         }
         _ => Ok(Vec::new()),
@@ -89,7 +90,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
     
     let annotation_data = {
         let page = doc.get_object(page_id)
-            .map_err(|e| format!("Failed to get page object: {}", e))?;
+            .map_err(|e| i18n::err_get_page(&e.to_string()))?;
         
         let page_dict = match page {
             Object::Dictionary(dict) => dict,
@@ -161,7 +162,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
     if !annotation_data.is_empty() {
         let current_content = {
             let page = doc.get_object(page_id)
-                .map_err(|e| format!("Failed to get page object: {}", e))?;
+                .map_err(|e| i18n::err_get_page(&e.to_string()))?;
             
             if let Object::Dictionary(dict) = page {
                 match dict.get(b"Contents") {
@@ -175,13 +176,10 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         
         let mut new_content = Vec::new();
         
-        // Wrap original content in q/Q to save/restore graphics state
-        // This prevents CAD coordinate transforms from affecting annotations
         new_content.extend_from_slice(b"q\n");
         new_content.extend_from_slice(&current_content);
         new_content.extend_from_slice(b"\nQ\n");
         
-        // Draw annotations with clean (identity) CTM
         for stream_content in &annotation_data {
             new_content.extend_from_slice(b"q\n");
             new_content.extend_from_slice(stream_content);
@@ -192,7 +190,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         let new_id = doc.add_object(new_stream);
         
         let page = doc.get_object_mut(page_id)
-            .map_err(|e| format!("Failed to modify page: {}", e))?;
+            .map_err(|e| i18n::err_modify_page(&e.to_string()))?;
         
         if let Object::Dictionary(dict) = page {
             dict.set(b"Contents", Object::Reference(new_id));
@@ -200,7 +198,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
     }
     
     let page = doc.get_object_mut(page_id)
-        .map_err(|e| format!("Failed to modify page: {}", e))?;
+        .map_err(|e| i18n::err_modify_page(&e.to_string()))?;
     
     if let Object::Dictionary(dict) = page {
         dict.remove(b"Annots");

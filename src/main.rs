@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod i18n;
 mod pdf;
 mod ui;
 
@@ -10,7 +11,7 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([600.0, 400.0])
-            .with_title("PDF Annotation Flattener"),
+            .with_title(i18n::title()),
         ..Default::default()
     };
     

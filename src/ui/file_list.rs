@@ -1,3 +1,4 @@
+use crate::i18n;
 use crate::pdf::PdfInfo;
 
 pub struct FileList;
@@ -10,7 +11,7 @@ impl FileList {
                 if files.is_empty() {
                     ui.centered_and_justified(|ui| {
                         ui.label(
-                            egui::RichText::new("No files added. Please add PDF files.")
+                            egui::RichText::new(i18n::no_files())
                                 .italics()
                                 .color(egui::Color32::GRAY),
                         );
@@ -21,15 +22,15 @@ impl FileList {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("#").strong());
                     ui.add_space(4.0);
-                    ui.label(egui::RichText::new("Filename").strong());
+                    ui.label(egui::RichText::new(i18n::col_filename()).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("Action").strong());
+                        ui.label(egui::RichText::new(i18n::col_action()).strong());
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("Status").strong());
+                        ui.label(egui::RichText::new(i18n::col_status()).strong());
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("Annotations").strong());
+                        ui.label(egui::RichText::new(i18n::col_annotations()).strong());
                         ui.add_space(30.0);
-                        ui.label(egui::RichText::new("Pages").strong());
+                        ui.label(egui::RichText::new(i18n::col_pages()).strong());
                     });
                 });
 

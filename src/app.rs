@@ -1,3 +1,4 @@
+use crate::i18n;
 use crate::pdf::{flatten_pdf, get_pdf_info, PdfInfo};
 use crate::ui::{FileList, ProgressView};
 
@@ -21,7 +22,6 @@ pub struct PdfFlattenApp {
 
 impl PdfFlattenApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Configure fonts with Chinese support
         let mut fonts = egui::FontDefinitions::default();
         
         #[cfg(target_os = "windows")]
@@ -97,7 +97,7 @@ impl PdfFlattenApp {
                         }
                     }
                     Err(e) => {
-                        self.error_message = Some(format!("Failed to read {}: {}", path.display(), e));
+                        self.error_message = Some(i18n::err_read_file(&path.display().to_string(), &e));
                     }
                 }
             }
@@ -121,11 +121,11 @@ impl PdfFlattenApp {
 
             match flatten_pdf(&file.path, self.keep_original) {
                 Ok(_) => {
-                    file.status = "OK".to_string();
+                    file.status = i18n::status_ok().to_string();
                 }
                 Err(e) => {
-                    file.status = "ERR".to_string();
-                    self.error_message = Some(format!("Error processing {}: {}", file.name, e));
+                    file.status = i18n::status_error().to_string();
+                    self.error_message = Some(i18n::err_process_file(&file.name, &e));
                 }
             }
         }
@@ -153,7 +153,7 @@ impl PdfFlattenApp {
 impl eframe::App for PdfFlattenApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("PDF Annotation Flattener");
+            ui.heading(i18n::title());
             ui.add_space(8.0);
 
             let drop_zone = ui.vertical_centered(|ui| {
@@ -179,7 +179,7 @@ impl eframe::App for PdfFlattenApp {
                 ui.put(
                     rect,
                     egui::Label::new(
-                        egui::RichText::new("Drop PDF files here, or click to select")
+                        egui::RichText::new(i18n::drop_hint())
                             .size(16.0)
                             .color(egui::Color32::from_rgb(100, 100, 120)),
                     ),
@@ -216,8 +216,8 @@ impl eframe::App for PdfFlattenApp {
             ui.add_space(8.0);
 
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.keep_original, "Keep original files");
-                ui.checkbox(&mut self.open_output_dir, "Open output directory after processing");
+                ui.checkbox(&mut self.keep_original, i18n::keep_original());
+                ui.checkbox(&mut self.open_output_dir, i18n::open_output_dir());
             });
 
             ui.add_space(8.0);
@@ -227,13 +227,13 @@ impl eframe::App for PdfFlattenApp {
                     && self.state != ProcessingState::Processing;
 
                 if ui
-                    .add_enabled(can_process, egui::Button::new("Start Processing"))
+                    .add_enabled(can_process, egui::Button::new(i18n::btn_start()))
                     .clicked()
                 {
                     self.process_files();
                 }
 
-                if ui.button("Add Files").clicked() {
+                if ui.button(i18n::btn_add_files()).clicked() {
                     let files = rfd::FileDialog::new()
                         .add_filter("PDF", &["pdf"])
                         .pick_files();
@@ -242,7 +242,7 @@ impl eframe::App for PdfFlattenApp {
                     }
                 }
 
-                if ui.button("Clear List").clicked() {
+                if ui.button(i18n::btn_clear()).clicked() {
                     self.clear_list();
                 }
             });

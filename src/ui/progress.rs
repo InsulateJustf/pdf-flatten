@@ -1,4 +1,5 @@
 use crate::app::ProcessingState;
+use crate::i18n;
 
 pub struct ProgressView;
 
@@ -20,9 +21,9 @@ impl ProgressView {
         let progress_bar = egui::ProgressBar::new(progress)
             .show_percentage()
             .text(if *state == ProcessingState::Done {
-                "Processing complete".to_string()
+                i18n::processing_done().to_string()
             } else {
-                format!("Processing: {}/{}", current, total)
+                i18n::processing(current, total)
             });
 
         ui.add(progress_bar);

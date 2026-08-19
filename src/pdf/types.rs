@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use crate::i18n;
 
 #[derive(Clone)]
 pub struct PdfInfo {
@@ -11,7 +12,7 @@ pub struct PdfInfo {
 
 pub fn get_pdf_info(path: &PathBuf) -> Result<PdfInfo, String> {
     let doc = lopdf::Document::load(path)
-        .map_err(|e| format!("Failed to load PDF: {}", e))?;
+        .map_err(|e| i18n::err_load_pdf(&e.to_string()))?;
     
     let page_count = doc.get_pages().len();
     
@@ -38,6 +39,6 @@ pub fn get_pdf_info(path: &PathBuf) -> Result<PdfInfo, String> {
         name,
         pages: page_count,
         annotations: annotation_count,
-        status: "Pending".to_string(),
+        status: i18n::status_pending().to_string(),
     })
 }
