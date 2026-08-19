@@ -122,6 +122,27 @@ fn get_annot_rect(annot_dict: &lopdf::Dictionary) -> Option<[f64; 4]> {
     None
 }
 
+/// Get Form XObject Matrix as [a, b, c, d, e, f]
+fn get_form_matrix(stream: &lopdf::Stream) -> Option<[f64; 6]> {
+    if let Ok(lopdf::Object::Array(matrix)) = stream.dict.get(b"Matrix") {
+        if matrix.len() == 6 {
+            let values: Vec<f64> = matrix.iter()
+                .filter_map(|obj| {
+                    match obj {
+                        lopdf::Object::Integer(i) => Some(*i as f64),
+                        lopdf::Object::Real(f) => Some(*f as f64),
+                        _ => None,
+                    }
+                })
+                .collect();
+            if values.len() == 6 {
+                return Some([values[0], values[1], values[2], values[3], values[4], values[5]]);
+            }
+        }
+    }
+    None
+}
+
 fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(), String> {
     use lopdf::{Object, Stream};
     
@@ -174,14 +195,16 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
             if let Ok(ap) = annot_dict.get(b"AP") {
                 if let Object::Dictionary(ap_dict) = ap {
                     if let Ok(normal) = ap_dict.get(b"N") {
-                        let stream_content = match normal {
+                        let (stream_content, matrix) = match normal {
                             Object::Stream(stream) => {
-                                get_stream_content(doc, stream)?
+                                let matrix = get_form_matrix(stream);
+                                (get_stream_content(doc, stream)?, matrix)
                             }
                             Object::Reference(ref_id) => {
                                 if let Ok(obj) = doc.get_object(*ref_id) {
                                     if let Object::Stream(stream) = obj {
-                                        get_stream_content(doc, stream)?
+                                        let matrix = get_form_matrix(stream);
+                                        (get_stream_content(doc, stream)?, matrix)
                                     } else {
                                         continue;
                                     }
@@ -192,7 +215,7 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
                             _ => continue,
                         };
                         
-                        data.push((rect, stream_content));
+                        data.push((rect, stream_content, matrix));
                     }
                 }
             }
@@ -223,14 +246,13 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         // Build new content with appearance streams
         let mut new_content = current_content;
         
-        for (rect, stream_content) in &annotation_data {
+        for (_rect, stream_content, matrix) in &annotation_data {
             new_content.extend_from_slice(b"\nq\n");
             
-            // If we have a rectangle, apply translation to position the annotation
-            if let Some([x1, y1, _x2, _y2]) = rect {
-                // Translate to annotation position
-                // Use 6 decimal places for precision
-                let transform = format!("1 0 0 1 {:.6} {:.6} cm\n", x1, y1);
+            // If the Form XObject has a Matrix, apply it
+            // The Matrix transforms from Form space to annotation space
+            if let Some([a, b, c, d, e, f]) = matrix {
+                let transform = format!("{:.6} {:.6} {:.6} {:.6} {:.6} {:.6} cm\n", a, b, c, d, e, f);
                 new_content.extend_from_slice(transform.as_bytes());
             }
             
