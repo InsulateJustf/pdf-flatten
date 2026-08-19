@@ -6,33 +6,53 @@ pub enum Language {
     English,
 }
 
-static LANG: LazyLock<Language> = LazyLock::new(|| {
-    // Try to detect system language
-    let lang = std::env::var("LANG")
-        .or_else(|_| std::env::var("LC_ALL"))
-        .or_else(|_| std::env::var("LC_MESSAGES"))
-        .unwrap_or_default();
-    
-    if lang.starts_with("zh") || lang.contains("CN") || lang.contains("TW") || lang.contains("HK") {
-        Language::Chinese
-    } else {
-        // On Windows, try to detect via environment
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(ui_lang) = std::env::var("PreferredUILanguages") {
-                if ui_lang.starts_with("zh") {
-                    return Language::Chinese;
-                }
+fn detect_language() -> Language {
+    // Method 1: Check environment variables (Unix/Linux/macOS)
+    let env_vars = ["LANG", "LC_ALL", "LC_MESSAGES", "LANGUAGE"];
+    for var in &env_vars {
+        if let Ok(val) = std::env::var(var) {
+            if val.starts_with("zh") || val.contains("CN") || val.contains("TW") || val.contains("HK") {
+                return Language::Chinese;
             }
-            // Check common Windows Chinese locale indicators
-            if lang.contains("CHS") || lang.contains("CHT") || lang.contains("Chinese") {
+            if !val.is_empty() && !val.starts_with("zh") {
+                return Language::English;
+            }
+        }
+    }
+    
+    // Method 2: Windows-specific detection
+    #[cfg(target_os = "windows")]
+    {
+        // Check PreferredUILanguages
+        if let Ok(ui_lang) = std::env::var("PreferredUILanguages") {
+            if ui_lang.to_lowercase().starts_with("zh") {
                 return Language::Chinese;
             }
         }
         
-        Language::English
+        // Check common Windows environment variables
+        for var in &["UI_LANGUAGE", "MUI", "SystemLocale"] {
+            if let Ok(val) = std::env::var(var) {
+                if val.to_lowercase().contains("zh") || val.to_lowercase().contains("chinese") {
+                    return Language::Chinese;
+                }
+            }
+        }
+        
+        // Try to use sys_locale crate if available, or fallback to checking
+        // the user's default locale via a simple heuristic
+        if let Ok(locale) = sys_locale::get_locale() {
+            if locale.to_lowercase().starts_with("zh") {
+                return Language::Chinese;
+            }
+        }
     }
-});
+    
+    // Default to English
+    Language::English
+}
+
+static LANG: LazyLock<Language> = LazyLock::new(detect_language);
 
 pub fn lang() -> Language {
     *LANG
