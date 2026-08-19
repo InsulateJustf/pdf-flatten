@@ -18,11 +18,33 @@ jobs:
       with:
         targets: x86_64-pc-windows-msvc
     
+    - name: Cache cargo registry and build
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+    
     - name: Build Release
-      run: cargo build --release
+      run: cargo build --release 2>&1
+    
+    - name: Check binary exists
+      run: |
+        if (Test-Path "target/release/pdf-flatten.exe") {
+          Write-Host "Build successful!"
+          Get-Item "target/release/pdf-flatten.exe" | Select-Object FullName, Length
+        } else {
+          Write-Host "ERROR: Binary not found!"
+          exit 1
+        }
     
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: pdf-flatten-windows
         path: target/release/pdf-flatten.exe
+        if-no-files-found: error

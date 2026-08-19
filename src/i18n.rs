@@ -41,7 +41,7 @@ fn detect_language() -> Language {
         
         // Try to use sys_locale crate if available, or fallback to checking
         // the user's default locale via a simple heuristic
-        if let Ok(locale) = sys_locale::get_locale() {
+        if let Some(locale) = sys_locale::get_locale() {
             if locale.to_lowercase().starts_with("zh") {
                 return Language::Chinese;
             }
