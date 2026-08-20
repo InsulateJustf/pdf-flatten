@@ -1,6 +1,9 @@
 use std::path::Path;
 use crate::i18n;
 
+/// Target author whose annotations should be flattened
+const TARGET_AUTHOR: &str = "AutoCAD SHX Text";
+
 pub fn flatten_pdf(input_path: &Path, keep_original: bool) -> Result<(), String> {
     let mut doc = lopdf::Document::load(input_path)
         .map_err(|e| i18n::err_load_pdf(&e.to_string()))?;
@@ -85,10 +88,20 @@ fn get_content_from_object(doc: &lopdf::Document, obj: &lopdf::Object) -> Result
     }
 }
 
+/// Get the author string from an annotation dictionary
+fn get_annot_author(annot_dict: &lopdf::Dictionary) -> Option<String> {
+    if let Ok(lopdf::Object::String(bytes, _)) = annot_dict.get(b"T") {
+        Some(String::from_utf8_lossy(bytes).to_string())
+    } else {
+        None
+    }
+}
+
 fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(), String> {
     use lopdf::{Object, Stream};
     
-    let annotation_data = {
+    // First pass: collect annotations, separating target author from others
+    let (target_annots_content, other_annot_refs) = {
         let page = doc.get_object(page_id)
             .map_err(|e| i18n::err_get_page(&e.to_string()))?;
         
@@ -111,7 +124,8 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
             return Ok(());
         }
         
-        let mut data = Vec::new();
+        let mut target_contents = Vec::new();
+        let mut other_refs = Vec::new();
         
         for annot_ref in &annot_refs {
             let annot_id = match annot_ref {
@@ -129,37 +143,48 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
                 _ => continue,
             };
             
-            if let Ok(ap) = annot_dict.get(b"AP") {
-                if let Object::Dictionary(ap_dict) = ap {
-                    if let Ok(normal) = ap_dict.get(b"N") {
-                        let stream_content = match normal {
-                            Object::Stream(stream) => {
-                                get_stream_content(doc, stream)?
-                            }
-                            Object::Reference(ref_id) => {
-                                if let Ok(obj) = doc.get_object(*ref_id) {
-                                    if let Object::Stream(stream) = obj {
-                                        get_stream_content(doc, stream)?
+            // Check author
+            let author = get_annot_author(annot_dict);
+            let is_target = author.as_deref() == Some(TARGET_AUTHOR);
+            
+            if is_target {
+                // This is a target annotation, collect its appearance stream
+                if let Ok(ap) = annot_dict.get(b"AP") {
+                    if let Object::Dictionary(ap_dict) = ap {
+                        if let Ok(normal) = ap_dict.get(b"N") {
+                            let stream_content = match normal {
+                                Object::Stream(stream) => {
+                                    get_stream_content(doc, stream)?
+                                }
+                                Object::Reference(ref_id) => {
+                                    if let Ok(obj) = doc.get_object(*ref_id) {
+                                        if let Object::Stream(stream) = obj {
+                                            get_stream_content(doc, stream)?
+                                        } else {
+                                            continue;
+                                        }
                                     } else {
                                         continue;
                                     }
-                                } else {
-                                    continue;
                                 }
-                            }
-                            _ => continue,
-                        };
-                        
-                        data.push(stream_content);
+                                _ => continue,
+                            };
+                            
+                            target_contents.push(stream_content);
+                        }
                     }
                 }
+            } else {
+                // Keep this annotation
+                other_refs.push(annot_ref.clone());
             }
         }
         
-        data
+        (target_contents, other_refs)
     };
     
-    if !annotation_data.is_empty() {
+    // Second pass: modify page content and annotations
+    if !target_annots_content.is_empty() {
         let current_content = {
             let page = doc.get_object(page_id)
                 .map_err(|e| i18n::err_get_page(&e.to_string()))?;
@@ -176,11 +201,13 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         
         let mut new_content = Vec::new();
         
+        // Wrap original content in q/Q to save/restore graphics state
         new_content.extend_from_slice(b"q\n");
         new_content.extend_from_slice(&current_content);
         new_content.extend_from_slice(b"\nQ\n");
         
-        for stream_content in &annotation_data {
+        // Draw target annotations with clean (identity) CTM
+        for stream_content in &target_annots_content {
             new_content.extend_from_slice(b"q\n");
             new_content.extend_from_slice(stream_content);
             new_content.extend_from_slice(b"\nQ\n");
@@ -197,11 +224,21 @@ fn flatten_page(doc: &mut lopdf::Document, page_id: lopdf::ObjectId) -> Result<(
         }
     }
     
-    let page = doc.get_object_mut(page_id)
-        .map_err(|e| i18n::err_modify_page(&e.to_string()))?;
-    
-    if let Object::Dictionary(dict) = page {
-        dict.remove(b"Annots");
+    // Update annotations: keep only non-target annotations
+    if other_annot_refs.is_empty() {
+        // No other annotations, remove the Annots key entirely
+        let page = doc.get_object_mut(page_id)
+            .map_err(|e| i18n::err_modify_page(&e.to_string()))?;
+        if let Object::Dictionary(dict) = page {
+            dict.remove(b"Annots");
+        }
+    } else {
+        // Keep the remaining annotations
+        let page = doc.get_object_mut(page_id)
+            .map_err(|e| i18n::err_modify_page(&e.to_string()))?;
+        if let Object::Dictionary(dict) = page {
+            dict.set(b"Annots", Object::Array(other_annot_refs));
+        }
     }
     
     Ok(())
